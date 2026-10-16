@@ -44,7 +44,69 @@ def get_asymgauss(ndim):
     return autoparamnames(ndim), loglike, null_transform, True, (centers, sigma)
 
 
+def get_asymgaussH(ndim):
+    """Corrected - lnZ is 0 in most cases (d=4,16,100); not: d=8 for some reason?"""
+    log10_sigmamin = max(-1 - 53 / ndim, -7)
+    # sigmamin = 10**log10_sigmamin
+    sigma = np.logspace(log10_sigmamin, -1, ndim)
+    centers = 0.5 + 0.5 * (1 - 5 * sigma) * np.sin(np.arange(ndim) / 2.)
+
+    def loglike(theta):
+        like = -0.5 * (((theta - centers)/sigma)**2).sum(axis=1) - 0.5 * np.log(2 * np.pi * sigma**2).sum()
+        like[~np.isfinite(like)] = -1e300
+        return like
+
+    return autoparamnames(ndim), loglike, null_transform, True, (centers, sigma)
+
+
 def get_stdfunnel(ndim, gamma=0):
+    """Neal's funnel problem
+
+    gamma controls the correlation.
+
+    uses sigma as first parameter, and scaled deviation from mean as the others.
+
+    loglike_vectorized has a -0.5 * sigma * ndim which should be ndim * np.log(sigma)
+    """
+    assert ndim > 0
+    M = np.ones((ndim, ndim)) * gamma
+    np.fill_diagonal(M, 1)
+    Minv = np.linalg.inv(M)
+    logMdet = log(np.linalg.det(M))
+
+    prefactor = log(2 * pi) * ndim
+
+    paramnames = ['sigma'] + ['dp%d' % i for i in range(ndim)]
+
+    if gamma == 0:
+        def loglike(theta):
+            sigma = theta[0]
+            x = theta[1:] * sigma
+            like = -0.5 * (((x)/sigma)**2).sum() - 0.5 * log(2 * pi * sigma**2) * ndim
+            return like
+        def transform(x):
+            z = x * 20 - 10
+            z[0] = np.exp(scipy.stats.norm.ppf(x[0]) * 0.5)
+            z[1:] /= z[0]
+            return z
+        return paramnames, loglike, transform, False, None
+
+    def loglike_vectorized(theta):
+        sigma = theta[:,0]
+        var = sigma**2
+        x = theta[:,1:] * sigma.reshape((-1, 1))
+        r = np.einsum('ij,jk,ik->i', x, Minv, x) / var
+        like = -0.5 * (prefactor + logMdet + sigma * ndim + r)
+        return np.where(like > -1e300, like, -1e300)
+    def transform_vectorized(x):
+        z = x * 20 - 10
+        z[:,0] = np.exp(scipy.stats.norm.ppf(x[:,0]) * 0.5)
+        z[:,1:] /= z[:,0].reshape((-1, 1))
+        return z
+
+    return paramnames, loglike_vectorized, transform_vectorized, True, None
+
+def get_stdfunnelN(ndim, gamma=0):
     """Neal's funnel problem
 
     gamma controls the correlation.
@@ -80,7 +142,7 @@ def get_stdfunnel(ndim, gamma=0):
         var = sigma**2
         x = theta[:,1:] * sigma.reshape((-1, 1))
         r = np.einsum('ij,jk,ik->i', x, Minv, x) / var
-        like = -0.5 * (prefactor + logMdet + sigma * ndim + r)
+        like = -0.5 * (prefactor + logMdet + 2 * ndim * np.log(sigma) + r)
         return np.where(like > -1e300, like, -1e300)
     def transform_vectorized(x):
         z = x * 20 - 10
@@ -274,12 +336,24 @@ problems = dict([
     ('multisine-1comp-5d', get_multisine(1)),
     ('multisine-2comp-8d', get_multisine(2)),
     ('multisine-3comp-11d', get_multisine(3)),
-    ('asymgauss-4d', get_asymgauss(4)),
-    ('asymgauss-16d', get_asymgauss(16)),
-    ('asymgauss-100d', get_asymgauss(100)),
+    #('asymgauss-4d', get_asymgauss(4)),
+    #('asymgauss-10d', get_asymgauss(10)),
+    #('asymgauss-16d', get_asymgauss(16)),
+    #('asymgauss-20d', get_asymgauss(20)),
+    #('asymgauss-100d', get_asymgauss(100)),
+    ('asymgaussH-4d', get_asymgaussH(4)),
+    ('asymgaussH-8d', get_asymgaussH(8)),
+    ('asymgaussH-16d', get_asymgaussH(16)),
+    ('asymgaussH-32d', get_asymgaussH(32)),
+    ('asymgaussH-100d', get_asymgaussH(100)),
     ('corrfunnel-2d', get_stdfunnel(1, gamma=0.95)),
+    ('corrfunnel-5d', get_stdfunnel(4, gamma=0.95)),
     ('corrfunnel-10d', get_stdfunnel(9, gamma=0.95)),
     ('corrfunnel-50d', get_stdfunnel(49, gamma=0.95)),
+    ('corrfunnelN-2d', get_stdfunnelN(1, gamma=0.95)),
+    ('corrfunnelN-5d', get_stdfunnelN(4, gamma=0.95)),
+    ('corrfunnelN-10d', get_stdfunnelN(9, gamma=0.95)),
+    ('corrfunnelN-50d', get_stdfunnelN(49, gamma=0.95)),
     ('rosenbrock-2d', get_rosenbrock(2)),
     ('rosenbrock-20d', get_rosenbrock(20)),
     ('rosenbrock-50d', get_rosenbrock(50)),

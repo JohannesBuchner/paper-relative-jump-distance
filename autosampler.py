@@ -167,6 +167,22 @@ def run_sampler(
             sampler.stepsampler.plot(filename = log_dir + '/stepsampler_stats_region.pdf')
         if ndim <= 30:
             sampler.plot()
+    elif samplername == 'ultranest-step':
+        from ultranest import ReactiveNestedSampler
+        nsteps = int(os.environ['NSTEPS'])
+        stepsamplername = os.environ['STEPSAMPLER']
+        step_log_dir = log_dir + '-nsteps%d' % nsteps
+        if not os.path.exists(step_log_dir):
+            os.mkdir(step_log_dir)
+        sampler = ReactiveNestedSampler(param_names, loglike, transform=transform,
+            log_dir=step_log_dir, resume=True, vectorized=vectorized)
+        sampler.stepsampler = samplers[stepsamplername](nsteps, ndim)
+        ultranest_run(sampler, step_log_dir, max_ncalls)
+        sampler.print_results()
+        if sampler.stepsampler is not None:
+            sampler.stepsampler.plot(filename=step_log_dir + '/stepsampler_stats_region.pdf')
+        if ndim <= 30:
+            sampler.plot()
     elif samplername == 'ultranest-calibrator':
         calibrator = ReactiveNestedCalibrator(
             param_names, loglike, transform=transform, 
